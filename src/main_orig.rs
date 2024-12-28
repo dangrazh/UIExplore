@@ -40,18 +40,6 @@ fn main() -> eframe::Result {
     )
 }
 
-struct TreeState {
-    active_element: Option<UIElementProps>,
-}
-
-impl TreeState {
-    fn new() -> Self {
-        Self {
-            active_element: None,
-        }
-    }
-}
-
 #[allow(dead_code)]
 struct UIExplorer {
     recording: bool,
@@ -82,13 +70,13 @@ impl UIExplorer {
         }
     }
 
-    fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState) {
+    fn render_ui_tree(&mut self, ui: &mut egui::Ui) {
         let tree = &self.ui_tree;
         // Display the file format as the root note, if there is one
-        Self::render_ui_tree_recursive(ui, tree, 0, state);
+        Self::render_ui_tree_recursive(ui, tree, 0);
     }
 
-    pub fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize, state: &mut TreeState) {
+    pub fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize) {
         for &child_index in tree.children(idx) {
             let (name, ui_element) = tree.node(child_index);
 
@@ -96,21 +84,17 @@ impl UIExplorer {
                 //log::debug!("Rendering leaf node: {}", name);
                 // Node has no children, so just show a label
                 //ui.label(format! {"{}: {}", name, ui_element});
-                if ui.label(format!("  {}", name)).clicked() {
-                    state.active_element = Some(ui_element.clone());
-                }
+                ui.label(format!("  {}", name));
             }
             else {
                 //log::debug!("Rendering new parent node: {}", name);
                 // Render children under collapsing header
-                if egui::CollapsingHeader::new(name)
+                egui::CollapsingHeader::new(name)
                     .id_salt(format!("ch_node{}", child_index))
                     .show(ui, |ui| {
                         // Recursively render children
-                        Self::render_ui_tree_recursive(ui, tree, child_index, state);
-                    }).header_response.clicked() {
-                        state.active_element = Some(ui_element.clone());
-                    }
+                        Self::render_ui_tree_recursive(ui, tree, child_index);
+                    });
             }
         }
     }    
@@ -119,18 +103,22 @@ impl UIExplorer {
 
 impl eframe::App for UIExplorer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
-        let mut state: TreeState;
-        if let Some(tree_state) = &self.active_element {
-            state = TreeState {active_element: Some(tree_state.clone()) };
-        } else {
-            state = TreeState::new();
-        }
-
         egui::SidePanel::left("left_panel").show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
 
+            // let ui_tree = self.ui_tree.get_tree();
+            // for elem in ui_tree.children(0) {
+            //     let itm = ui_tree.node(*elem);
+            //     ui.label(itm.name.clone());
+            // }
+            
+            // for (elem, idx) in ui_tree_itr {
+            //     ui.label(elem.get_content_ref().gen_content());
+                                
+            // } 
 
-            self.render_ui_tree(ui, &mut state);
+            self.render_ui_tree(ui);
+
+
 
         });
         
@@ -141,31 +129,31 @@ impl eframe::App for UIExplorer {
                 // ui.text_edit_singleline(&mut self.name)
                 //     .labelled_by(name_label.id);
 
-                if let Some(active_element) = &state.active_element {
+                if let Some(active_element) = &self.active_element {
                     egui::Grid::new("some_unique_id").min_col_width(100.0).show(ui, |ui| {
                         ui.label("Name:");
-                        ui.label(active_element.name.clone());
+                        ui.label(self.active_element.as_mut().unwrap().name.clone());
                         ui.end_row();
                     
                         ui.label("Item Type:");
-                        ui.label(active_element.item_type.clone());
+                        ui.label(self.active_element.as_mut().unwrap().item_type.clone());
                         ui.end_row();
 
                         ui.label("Localized Control Type:");
-                        ui.label(active_element.localized_control_type.clone());
+                        ui.label(self.active_element.as_mut().unwrap().localized_control_type.clone());
                         ui.end_row();
 
                         ui.label("Class Name:");
-                        ui.label(active_element.classname.clone());
+                        ui.label(self.active_element.as_mut().unwrap().classname.clone());
                         ui.end_row();
 
                         ui.label("Runtime ID:");
-                        ui.label(active_element.runtime_id.iter().map(|x| x.to_string()).collect::<Vec<String>>().join("-"));
+                        ui.label(self.active_element.as_mut().unwrap().runtime_id.iter().map(|x| x.to_string()).collect::<Vec<String>>().join("-"));
                         ui.end_row();
 
 
                         ui.label("Surrounding Rectangle:");
-                        ui.label(format!("{:?}", active_element.bounding_rect));
+                        ui.label(format!("{:?}", self.active_element.as_mut().unwrap().bounding_rect));
                         ui.end_row();
                         
 
@@ -180,8 +168,6 @@ impl eframe::App for UIExplorer {
             });
 
         });
-
-        self.active_element = state.active_element;
     }
 
 
