@@ -1,5 +1,5 @@
 //! A generic tree structure with fast key-value lookup (not collision safe!)
-
+#![allow(dead_code)]
 use crate::{UIHashMap, UIHashSet};
 
 // A generic node in a UITreeMap
