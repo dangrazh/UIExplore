@@ -4,6 +4,9 @@
 #[macro_use]
 mod macros;
 
+// mod geometry;
+// use geometry::is_inside_rectancle;
+
 mod uiexplore;
 use uiexplore::{UITree, UIElementProps};
 
@@ -64,11 +67,70 @@ impl TreeState {
     }
 }
 
-#[allow(dead_code)]
+struct HistoryEntry {
+    summary: String,
+    entries: Vec<String>,
+}
+
+#[derive(Default)]
+struct DeduplicatedHistory {
+    history: std::collections::VecDeque<HistoryEntry>,
+}
+
+impl DeduplicatedHistory {
+    fn add(&mut self, summary: String, full: String) {
+        if let Some(entry) = self.history.back_mut() {
+            if entry.summary == summary {
+                entry.entries.push(full);
+                return;
+            }
+        }
+        self.history.push_back(HistoryEntry {
+            summary,
+            entries: vec![full],
+        });
+        if self.history.len() > 100 {
+            self.history.pop_front();
+        }
+    }
+
+    fn ui(&self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+
+                for HistoryEntry { summary, entries } in self.history.iter().rev() {
+                    ui.horizontal(|ui| {
+                        let response = ui.code(summary);
+                        if entries.len() < 2 {
+                            response
+                        } else {
+                            response | ui.weak(format!(" x{}", entries.len()))
+                        }
+                    })
+                    .inner
+                    .on_hover_ui(|ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        for entry in entries.iter().rev() {
+                            ui.code(entry);
+                        }
+                    });
+                }
+            });
+    }
+
+}
+
+
+// #[allow(dead_code)]
 struct UIExplorer {
     recording: bool,
     ui_tree: UITree,
     active_element: Option<UIElementProps>,
+    history: DeduplicatedHistory,
 }
 
 impl UIExplorer {
@@ -87,6 +149,7 @@ impl UIExplorer {
             recording: false,
             ui_tree,
             active_element: None,
+            history: DeduplicatedHistory::default(),
         }
     }
 
@@ -96,6 +159,7 @@ impl UIExplorer {
             recording: false,
             ui_tree,
             active_element: None,
+            history: DeduplicatedHistory::default(),
         }
     }
 
@@ -112,8 +176,12 @@ impl UIExplorer {
 
             if tree.children(child_index).is_empty() {
                 // Node has no children, so just show a label
-                if ui.label(format!("  {}", name)).clicked() {
+                let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
+                if entry.clicked() {
                     state.active_element = Some(ui_element.clone());
+                }
+                if entry.hovered() {
+                    entry.highlight();                    
                 }
             }
             else {
@@ -144,12 +212,12 @@ impl eframe::App for UIExplorer {
 
         egui::SidePanel::left("left_panel").min_width(400.0).show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
 
-
             self.render_ui_tree(ui, &mut state);
 
         });
         
         egui::CentralPanel::default().show(ctx, |ui| {
+                
             ui.horizontal(|ui| {
 
                 if let Some(active_element) = &state.active_element {
@@ -191,7 +259,43 @@ impl eframe::App for UIExplorer {
 
             });
 
+    
         });
+
+        egui::TopBottomPanel::bottom("bottom_panel").resizable(true).show(ctx, |ui| {
+
+            ui.input(|i| {
+                for event in &i.raw.events {
+    
+                    if !self.recording && matches!(
+                        event,
+                        egui::Event::PointerMoved { .. }
+                            | egui::Event::MouseMoved { .. }
+                            | egui::Event::Touch { .. }
+                    )
+                {
+                    continue;
+                }
+                    
+                    let summary = event_summary(event);
+                    let full = format!("{event:#?}");
+                    self.history.add(summary, full);
+    
+                }
+            });
+    
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.recording, "Recording");
+                ui.label("Record events");
+            });
+
+            ui.add_space(8.0);
+
+            self.history.ui(ui);
+
+        });
+
+
 
         self.active_element = state.active_element;
     }
@@ -200,3 +304,14 @@ impl eframe::App for UIExplorer {
 }
 
 
+fn event_summary(event: &egui::Event) -> String {
+    match event {
+        egui::Event::PointerMoved { .. } => "PointerMoved { .. }".to_owned(),
+        egui::Event::MouseMoved { .. } => "MouseMoved { .. }".to_owned(),
+        egui::Event::Zoom { .. } => "Zoom { .. }".to_owned(),
+        egui::Event::Touch { phase, .. } => format!("Touch {{ phase: {phase:?}, .. }}"),
+        egui::Event::MouseWheel { unit, .. } => format!("MouseWheel {{ unit: {unit:?}, .. }}"),
+
+        _ => format!("{event:?}"),
+    }
+}
