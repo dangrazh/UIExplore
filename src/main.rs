@@ -24,23 +24,23 @@ use tree_map::UITreeMap;
 
 fn main() -> eframe::Result {
 
-        printfmt!("Getting the ui tree");
-    
-        // get the ui tree in a separate thread
-        let (tx, rx): (Sender<_>, Receiver<uiexplore::UITree>) = channel();
-        thread::spawn(|| {
-            uiexplore::get_all_elements(tx, None);
-        });
-        printfmt!("Spawned separate thread to get ui tree");
+    printfmt!("Getting the ui tree");
 
-        let ui_tree = rx.recv().unwrap();
-        
-        printfmt!("UI Tree retrieved, setting up UIExplorer app...");
+    // get the ui tree in a separate thread
+    let (tx, rx): (Sender<_>, Receiver<uiexplore::UITree>) = channel();
+    thread::spawn(|| {
+        uiexplore::get_all_elements(tx, None);
+    });
+    printfmt!("Spawned separate thread to get ui tree");
+
+    let ui_tree = rx.recv().unwrap();
+    
+    printfmt!("UI Tree retrieved, setting up UIExplorer app...");
 
     
     // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1400.0, 800.0]).with_resizable(true),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1600.0, 800.0]).with_resizable(true),
         ..Default::default()
     };
     eframe::run_native(
@@ -57,12 +57,14 @@ fn main() -> eframe::Result {
 
 struct TreeState {
     active_element: Option<UIElementProps>,
+    active_ui_element: Option<egui::Id>,
 }
 
 impl TreeState {
     fn new() -> Self {
         Self {
             active_element: None,
+            active_ui_element: None,
         }
     }
 }
@@ -186,14 +188,18 @@ impl UIExplorer {
             }
             else {
                 // Render children under collapsing header
-                if egui::CollapsingHeader::new(name)
-                    .id_salt(format!("ch_node{}", child_index))
+                let header = egui::CollapsingHeader::new(name)
+                    .id_salt(format!("ch_node{}", child_index));
+                let header_resp = header
                     .show(ui, |ui| {
                         // Recursively render children
                         Self::render_ui_tree_recursive(ui, tree, child_index, state);
-                    }).header_response.clicked() {
-                        state.active_element = Some(ui_element.clone());
-                    }
+                    });
+                if header_resp.header_response.clicked() {
+                    state.active_element = Some(ui_element.clone());
+                    state.active_ui_element = Some(header_resp.header_response.id);
+                    
+                }
             }
         }
     }    
@@ -205,14 +211,20 @@ impl eframe::App for UIExplorer {
 
         let mut state: TreeState;
         if let Some(tree_state) = &self.active_element {
-            state = TreeState {active_element: Some(tree_state.clone()) };
+            state = TreeState {active_element: Some(tree_state.clone()), active_ui_element: None };
         } else {
             state = TreeState::new();
         }
 
-        egui::SidePanel::left("left_panel").min_width(400.0).show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
+        egui::SidePanel::left("left_panel").min_width(800.0).show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
 
-            self.render_ui_tree(ui, &mut state);
+            egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+
+                self.render_ui_tree(ui, &mut state);
+
+            });
 
         });
         
@@ -294,7 +306,6 @@ impl eframe::App for UIExplorer {
             self.history.ui(ui);
 
         });
-
 
 
         self.active_element = state.active_element;
