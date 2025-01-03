@@ -7,6 +7,8 @@ mod macros;
 // mod geometry;
 // use geometry::is_inside_rectancle;
 
+use ::uiexplore::signal_file;
+
 mod uiexplore;
 use uiexplore::{UITree, UIElementProps};
 
@@ -33,22 +35,26 @@ fn main() -> eframe::Result {
     });
     printfmt!("Spawned separate thread to get ui tree");
 
+    printfmt!("displaying start screen now");
+    launch_start_screen();
+    
     let ui_tree = rx.recv().unwrap();
     
+    signal_file::create_signal_file().unwrap();
     printfmt!("UI Tree retrieved, setting up UIExplorer app...");
 
-    
-    // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1600.0, 800.0]).with_resizable(true),
         ..Default::default()
     };
+
     eframe::run_native(
         "UI Explorer",
         options,
-        Box::new(|cc| {
+        Box::new(|_cc| {
             // This gives us image support:
-            egui_extras::install_image_loaders(&cc.egui_ctx);
+            // egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(UIExplorer::new_with_state(ui_tree)))
         }),
 
@@ -326,3 +332,12 @@ fn event_summary(event: &egui::Event) -> String {
         _ => format!("{event:?}"),
     }
 }
+
+
+fn launch_start_screen() {
+
+    let _cmd = std::process::Command::new("start_screen.exe")
+        .spawn()
+        .expect("Failed to start start_screen.exe");
+}
+

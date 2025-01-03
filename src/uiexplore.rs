@@ -120,7 +120,7 @@ pub fn get_all_elements(tx: Sender<UITree>, max_depth: Option<usize>)  {
 
     // sorting the elements by descending size of the bounding rectangle
     ui_elements.sort_by(|a, b| a.bounding_rect_size.cmp(&b.bounding_rect_size));
-    printfmt!("Number of UI elements: {}\n", ui_elements.len());
+    // printfmt!("Number of UI elements: {}\n", ui_elements.len());
 
     // pack the tree and ui_elements vector into a single struct
     let ui_tree = UITree::new(tree, ui_elements);
