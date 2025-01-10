@@ -41,7 +41,7 @@ impl eframe::App for MyApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {            
             ui.with_layout(layout, |ui| {                
-                ui.add_space(60.0);
+                ui.add_space(70.0);
                 ui.heading("UI Explore");
                 ui.add_space(20.0);
                 ui.label("Please wait while we prepare the data...");

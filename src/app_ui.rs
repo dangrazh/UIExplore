@@ -3,15 +3,17 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use eframe::egui;
 
+use egui::{Color32, Response};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::Foundation::POINT;
 
 use crate::{rectangle, uiexplore, UIElementProps, UITree};
 // use crate::rectangle::*;
 
+#[derive(Clone)]
 struct TreeState {
     active_element: Option<UIElementProps>,
-    active_ui_element: Option<egui::Id>,
+    active_ui_element: Option<usize>,
 }
 
 impl TreeState {
@@ -86,7 +88,8 @@ impl DeduplicatedHistory {
 pub struct UIExplorer {
     recording: bool,
     ui_tree: UITree,
-    active_element: Option<UIElementProps>,
+    tree_state: Option<TreeState>,
+    // active_element: Option<UIElementProps>,
     history: DeduplicatedHistory,
 }
 
@@ -105,7 +108,8 @@ impl UIExplorer {
         Self {
             recording: false,
             ui_tree,
-            active_element: None,
+            tree_state: None,
+            // active_element: None,
             history: DeduplicatedHistory::default(),
         }
     }
@@ -115,27 +119,52 @@ impl UIExplorer {
         Self {
             recording: false,
             ui_tree,
-            active_element: None,
+            tree_state: None,
+            // active_element: None,
             history: DeduplicatedHistory::default(),
         }
     }
 
 
-    fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState) {
+    fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState, weak_bg_fill: Color32) {
         let tree = &self.ui_tree;
         // Display the file format as the root note, if there is one
-        Self::render_ui_tree_recursive(ui, tree, 0, state);
+        Self::render_ui_tree_recursive(ui, tree, 0, state, weak_bg_fill);
     }
 
-    fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize, state: &mut TreeState) {
+    fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize, state: &mut TreeState, weak_bg_fill: Color32) {
+        
         for &child_index in tree.children(idx) {
             let (name, ui_element) = tree.node(child_index);
 
             if tree.children(child_index).is_empty() {
                 // Node has no children, so just show a label
-                let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
+                let lbl = egui::Label::new(format!("  {}", name));
+                let entry: Response;
+                // let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
+                if let Some(active_id) = state.active_ui_element {
+                    if active_id == child_index {
+                        // this is the active element, highlight with a background frame
+                        
+                        let tmp_entry = egui::Frame::none()
+                        .fill(weak_bg_fill)
+                        .show(ui, |ui| {
+                           ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
+                        });
+                        entry = tmp_entry.response;
+                    } else {
+                        entry = ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
+                    }
+                }
+                  else {
+                    // render a standard label
+                    // let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
+                    entry = ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
+                }
+
                 if entry.clicked() {
                     state.active_element = Some(ui_element.clone());
+                    state.active_ui_element = Some(child_index);
                 }
                 if entry.hovered() {
                     entry.highlight();                    
@@ -143,16 +172,27 @@ impl UIExplorer {
             }
             else {
                 // Render children under collapsing header
-                let header = egui::CollapsingHeader::new(name)
+                let header: egui::CollapsingHeader;                
+                // TODO: check if header is on path to active element, if yes open the header
+                if "perform the check" != "perform the check 1" {
+                    header = egui::CollapsingHeader::new(name)
                     .id_salt(format!("ch_node{}", child_index));
+                } else {
+                    header = egui::CollapsingHeader::new(name)
+                    .id_salt(format!("ch_node{}", child_index))
+                    .default_open(true);
+                    // TODO: or maybe better .open(Some(true)) ?? test it out...
+                }
+                
                 let header_resp = header
                     .show(ui, |ui| {
                         // Recursively render children
-                        Self::render_ui_tree_recursive(ui, tree, child_index, state);
-                    });
+                        Self::render_ui_tree_recursive(ui, tree, child_index, state, weak_bg_fill);
+                    });    
+                    
                 if header_resp.header_response.clicked() {
                     state.active_element = Some(ui_element.clone());
-                    state.active_ui_element = Some(header_resp.header_response.id);
+                    state.active_ui_element = Some(child_index);
                     
                 }
             }
@@ -165,21 +205,24 @@ impl eframe::App for UIExplorer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
         let mut state: TreeState;
-        if let Some(tree_state) = &self.active_element {
-            state = TreeState {active_element: Some(tree_state.clone()), active_ui_element: None };
+        if let Some(tree_state) = &self.tree_state { //.active_element 
+            state = tree_state.clone();
         } else {
             state = TreeState::new();
-        }
+        }        
 
+        let weak_bg_fill = ctx.theme().default_visuals().widgets.inactive.weak_bg_fill;        
 
-
-        egui::SidePanel::left("left_panel").min_width(800.0).show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
+        egui::SidePanel::left("left_panel")
+        .min_width(800.0)
+        .max_width(1400.0)                
+        .show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
 
             egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
-
-                self.render_ui_tree(ui, &mut state);
+                // printfmt!("running 'render_ui_tree' function on UIExplorer");
+                self.render_ui_tree(ui, &mut state, weak_bg_fill);
 
             });
 
@@ -277,7 +320,8 @@ impl eframe::App for UIExplorer {
 
 
 
-        self.active_element = state.active_element;
+        // self.active_element = state.active_element;
+        self.tree_state = Some(state);
     }
 
 
