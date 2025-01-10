@@ -6,8 +6,7 @@ mod macros;
 
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-// mod rectangle;
-// use rectangle::is_inside_rectancle;
+mod rectangle;
 
 use ::uiexplore::signal_file;
 
@@ -50,7 +49,6 @@ fn main() -> eframe::Result {
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).    
 
-    // determine screen size, the center of the screen and initial size for the app window
     let app_size_pos = AppSizeAndPosition::new_from_screen(0.6);
 
     let options = eframe::NativeOptions {

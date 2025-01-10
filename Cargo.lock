@@ -2940,7 +2940,6 @@ dependencies = [
  "env_logger",
  "uiautomation",
  "windows 0.58.0",
- "winit",
 ]
 
 [[package]]

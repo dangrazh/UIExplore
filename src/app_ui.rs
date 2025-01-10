@@ -3,8 +3,11 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use eframe::egui;
 
-use crate::{UITree, UIElementProps, uiexplore};
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::Foundation::POINT;
 
+use crate::{rectangle, uiexplore, UIElementProps, UITree};
+// use crate::rectangle::*;
 
 struct TreeState {
     active_element: Option<UIElementProps>,
@@ -76,6 +79,7 @@ impl DeduplicatedHistory {
     }
 
 }
+
 
 
 // #[allow(dead_code)]
@@ -167,6 +171,8 @@ impl eframe::App for UIExplorer {
             state = TreeState::new();
         }
 
+
+
         egui::SidePanel::left("left_panel").min_width(800.0).show(ctx, |ui| { // .min_width(300.0).max_width(600.0)
 
             egui::ScrollArea::vertical()
@@ -178,7 +184,43 @@ impl eframe::App for UIExplorer {
             });
 
         });
+
+        egui::TopBottomPanel::top("top_panel").resizable(true).show(ctx, |ui| {
+
+            ui.input(|i| {
+                
+                for event in &i.raw.events {
+    
+                    if !self.recording && matches!(
+                        event,
+                        egui::Event::PointerMoved { .. }
+                            | egui::Event::MouseMoved { .. }
+                            | egui::Event::Touch { .. }
+                    )
+                {
+                    continue;
+                }
+                    
+                    let summary = event_summary(event, self.ui_tree.get_elements());
+                    let full = format!("{event:#?}");
+                    self.history.add(summary, full);
+    
+                }
+            });
+    
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.recording, "Recording");
+                ui.label("Record events");
+            });
+
+            ui.add_space(8.0);
+
+            self.history.ui(ui);
+
+        });
+
         
+
         egui::CentralPanel::default().show(ctx, |ui| {
                 
             ui.horizontal(|ui| {
@@ -213,6 +255,14 @@ impl eframe::App for UIExplorer {
                         ui.label(format!("{:?}", active_element.bounding_rect));
                         ui.end_row();
                         
+                        ui.label("level:");
+                        ui.label(active_element.level.to_string());
+                        ui.end_row();
+                        
+                        ui.label("z-order:");
+                        ui.label(active_element.z_order.to_string());
+                        ui.end_row();
+
                     });    
 
                 }
@@ -225,51 +275,49 @@ impl eframe::App for UIExplorer {
     
         });
 
-        egui::TopBottomPanel::bottom("bottom_panel").resizable(true).show(ctx, |ui| {
-
-            ui.input(|i| {
-                for event in &i.raw.events {
-    
-                    if !self.recording && matches!(
-                        event,
-                        egui::Event::PointerMoved { .. }
-                            | egui::Event::MouseMoved { .. }
-                            | egui::Event::Touch { .. }
-                    )
-                {
-                    continue;
-                }
-                    
-                    let summary = event_summary(event);
-                    let full = format!("{event:#?}");
-                    self.history.add(summary, full);
-    
-                }
-            });
-    
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.recording, "Recording");
-                ui.label("Record events");
-            });
-
-            ui.add_space(8.0);
-
-            self.history.ui(ui);
-
-        });
 
 
         self.active_element = state.active_element;
     }
 
 
+
+}
+
+impl UIExplorer {
+    #[allow(dead_code)]
+    fn process_event(&mut self, event: &egui::Event) {
+
+        // TODO: validate if current cursor position is within the bounding rectangle of the active element
+        // if yes, skip the check, else call rectangle::get_point_bounding_rect() to find the element under the cursor
+        // Trasfer functioality of event_summary() into this function
+        let summary = event_summary(event, self.ui_tree.get_elements());
+        let full = format!("{event:#?}");
+        self.history.add(summary, full);
+    }
 }
 
 
-fn event_summary(event: &egui::Event) -> String {
+fn event_summary(event: &egui::Event, ui_elements: &Vec<UIElementProps>) -> String {
     match event {
-        egui::Event::PointerMoved { .. } => "PointerMoved { .. }".to_owned(),
-        egui::Event::MouseMoved { .. } => "MouseMoved { .. }".to_owned(),
+        egui::Event::PointerMoved { .. }   => {        
+            "PointerMoved { .. }".to_owned()
+        }
+        egui::Event::MouseMoved { .. } => { 
+            let cursor_position = unsafe {
+                let mut cursor_pos = POINT::default();
+                GetCursorPos(&mut cursor_pos).unwrap();
+                cursor_pos
+            };
+
+            if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, ui_elements) {
+                // format!("MouseMoved {{ x: {}, y: {} }} over {}", cursor_position.x, cursor_position.y, ui_element_props.name)
+                format!("MouseMoved over {{ name: '{}', control_type: '{}' bounding_rect: {} }}", ui_element_props.name, ui_element_props.control_type, ui_element_props.bounding_rect)
+            } else {
+            // format!("MouseMoved {{ x: {}, y: {} }} ", cursor_position.x, cursor_position.y)
+            "MouseMoved { .. }".to_owned()
+            }
+        }
         egui::Event::Zoom { .. } => "Zoom { .. }".to_owned(),
         egui::Event::Touch { phase, .. } => format!("Touch {{ phase: {phase:?}, .. }}"),
         egui::Event::MouseWheel { unit, .. } => format!("MouseWheel {{ unit: {unit:?}, .. }}"),
