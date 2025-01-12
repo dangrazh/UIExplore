@@ -137,31 +137,32 @@ impl UIExplorer {
         for &child_index in tree.children(idx) {
             let (name, ui_element) = tree.node(child_index);
 
+            // flag if this is the active element
+            let mut is_active_element: bool = false;
+            if let Some(active_id) = state.active_ui_element {
+                if active_id == child_index {
+                    is_active_element = true;
+                }
+            }
+
             if tree.children(child_index).is_empty() {
                 // Node has no children, so just show a label
                 let lbl = egui::Label::new(format!("  {}", name));
                 let entry: Response;
                 // let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
-                if let Some(active_id) = state.active_ui_element {
-                    if active_id == child_index {
-                        // this is the active element, highlight with a background frame
-                        
-                        let tmp_entry = egui::Frame::none()
-                        .fill(weak_bg_fill)
-                        .show(ui, |ui| {
-                           ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
-                        });
-                        entry = tmp_entry.response;
-                    } else {
-                        entry = ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
-                    }
+                if is_active_element{
+                    // show background to visually highlight the active element
+                    let tmp_entry = egui::Frame::none()
+                    .fill(weak_bg_fill)
+                    .show(ui, |ui| {
+                       ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
+                    });
+                    entry = tmp_entry.response;
+                } else {
+                    // render standard label without any visual highlights
+                    entry = ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);                    
                 }
-                  else {
-                    // render a standard label
-                    // let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
-                    entry = ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
-                }
-
+                
                 if entry.clicked() {
                     state.active_element = Some(ui_element.clone());
                     state.active_ui_element = Some(child_index);
@@ -175,13 +176,22 @@ impl UIExplorer {
                 let header: egui::CollapsingHeader;                
                 // TODO: check if header is on path to active element, if yes open the header
                 if "perform the check" != "perform the check 1" {
-                    header = egui::CollapsingHeader::new(name)
-                    .id_salt(format!("ch_node{}", child_index));
-                } else {
+                    // header is not on path, render a standard CollapsingHeader
                     header = egui::CollapsingHeader::new(name)
                     .id_salt(format!("ch_node{}", child_index))
-                    .default_open(true);
-                    // TODO: or maybe better .open(Some(true)) ?? test it out...
+                } else {
+                    if is_active_element {
+                        // show background to visually highlight the active element
+                        header = egui::CollapsingHeader::new(name)
+                        .id_salt(format!("ch_node{}", child_index))
+                        .default_open(true)
+                        .show_background(true);
+                    } else {
+                        header = egui::CollapsingHeader::new(name)
+                        .id_salt(format!("ch_node{}", child_index))
+                        .default_open(true);
+                        // TODO: or maybe better .open(Some(true)) ?? test it out...    
+                    }
                 }
                 
                 let header_resp = header
@@ -244,10 +254,13 @@ impl eframe::App for UIExplorer {
                     continue;
                 }
                     
+                    // for the visual event summary
                     let summary = event_summary(event, self.ui_tree.get_elements());
                     let full = format!("{event:#?}");
                     self.history.add(summary, full);
-    
+
+                    // update the actual active element
+                    self.process_event(event, &mut state);
                 }
             });
     
@@ -330,14 +343,22 @@ impl eframe::App for UIExplorer {
 
 impl UIExplorer {
     #[allow(dead_code)]
-    fn process_event(&mut self, event: &egui::Event) {
+    fn process_event(&mut self, event: &egui::Event, state: &mut TreeState) {
 
-        // TODO: validate if current cursor position is within the bounding rectangle of the active element
-        // if yes, skip the check, else call rectangle::get_point_bounding_rect() to find the element under the cursor
-        // Trasfer functioality of event_summary() into this function
-        let summary = event_summary(event, self.ui_tree.get_elements());
-        let full = format!("{event:#?}");
-        self.history.add(summary, full);
+        match event {
+            egui::Event::MouseMoved { .. } => { 
+                let cursor_position = unsafe {
+                    let mut cursor_pos = POINT::default();
+                    GetCursorPos(&mut cursor_pos).unwrap();
+                    cursor_pos
+                };
+                                
+                if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, self.ui_tree.get_elements()) {
+                    state.active_element = Some(ui_element_props.clone());
+                } 
+            }
+            _ => (),
+        }
     }
 }
 

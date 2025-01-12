@@ -60,7 +60,7 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "UI Explorer",
+        "UI Explore",
         options,
         Box::new(|_cc| {
             // This gives us image support:
@@ -125,8 +125,15 @@ extern "system" fn get_system_metrics() -> ScreenSize {
 
 fn launch_start_screen() {
 
-    let _cmd = std::process::Command::new("start_screen.exe")
-        .spawn()
-        .expect("Failed to start start_screen.exe");
+    let msg: &str;
+
+    let cmd = std::process::Command::new("start_screen.exe").spawn();
+
+    match cmd {
+        Ok(_) => { msg = "Start Screen successfully launched"; }
+        Err(_) => { msg = "Failed to launch Start Screen"; }
+    }
+
+    printfmt!("{}", msg);
 }
 
