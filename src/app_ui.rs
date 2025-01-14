@@ -1,14 +1,15 @@
+use time::{Duration, OffsetDateTime as DateTime};
+
 use std::thread;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use eframe::egui;
 
-use egui::{Color32, Response};
+use egui::Response;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::Foundation::POINT;
 
-use crate::{rectangle, uiexplore, UIElementProps, UITree};
-// use crate::rectangle::*;
+use crate::{rectangle, uiexplore, UIElementProps, UITree}; 
 
 #[derive(Clone)]
 struct TreeState {
@@ -24,6 +25,52 @@ impl TreeState {
         }
     }
 }
+#[derive(Clone)]
+struct AppStatusMsg {
+    status_msg: String,
+    expiry: Option<DateTime>,
+}
+
+impl AppStatusMsg {
+    #[allow(dead_code)]
+    fn new(msg: String) -> Self {
+        AppStatusMsg {
+            status_msg: msg, 
+            expiry: None,
+        }
+    }
+
+    fn new_with_duration(msg: String, display_for_time: Duration) -> Self {
+        
+        let dur = display_for_time;
+        let expiry = DateTime::now_utc() + dur;
+
+
+        AppStatusMsg {
+            status_msg: msg, 
+            expiry: Some(expiry),
+        }
+    }
+
+    fn has_display_duration(&self) -> bool {
+        if let Some(_exp) = self.expiry {
+            return true;
+        }
+        false    
+    }
+
+    fn is_expired(&self) -> bool {
+        let now = DateTime::now_utc();
+        if let Some(exp) = self.expiry {
+            if now > exp {
+                return true;
+            }
+        }
+        false    
+    }
+
+}
+
 
 struct HistoryEntry {
     summary: String,
@@ -89,8 +136,8 @@ pub struct UIExplorer {
     recording: bool,
     ui_tree: UITree,
     tree_state: Option<TreeState>,
-    // active_element: Option<UIElementProps>,
     history: DeduplicatedHistory,
+    status_msg: Option<AppStatusMsg>
 }
 
 impl UIExplorer {
@@ -109,8 +156,8 @@ impl UIExplorer {
             recording: false,
             ui_tree,
             tree_state: None,
-            // active_element: None,
             history: DeduplicatedHistory::default(),
+            status_msg: None,
         }
     }
 
@@ -120,19 +167,19 @@ impl UIExplorer {
             recording: false,
             ui_tree,
             tree_state: None,
-            // active_element: None,
             history: DeduplicatedHistory::default(),
+            status_msg: None,
         }
     }
 
 
-    fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState, weak_bg_fill: Color32) {
+    fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState) {
         let tree = &self.ui_tree;
         // Display the file format as the root note, if there is one
-        Self::render_ui_tree_recursive(ui, tree, 0, state, weak_bg_fill);
+        Self::render_ui_tree_recursive(ui, tree, 0, state);
     }
 
-    fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize, state: &mut TreeState, weak_bg_fill: Color32) {
+    fn render_ui_tree_recursive(ui: &mut egui::Ui, tree: &UITree, idx: usize, state: &mut TreeState) {
         
         for &child_index in tree.children(idx) {
             let (name, ui_element) = tree.node(child_index);
@@ -144,7 +191,7 @@ impl UIExplorer {
                     is_active_element = true;
                 }
             }
-
+            
             if tree.children(child_index).is_empty() {
                 // Node has no children, so just show a label
                 let lbl = egui::Label::new(format!("  {}", name));
@@ -152,8 +199,9 @@ impl UIExplorer {
                 // let entry = ui.label(format!("  {}", name)).on_hover_cursor(egui::CursorIcon::Default);
                 if is_active_element{
                     // show background to visually highlight the active element
+                    let weak_bg_fill = ui.ctx().theme().default_visuals().widgets.inactive.weak_bg_fill;        
                     let tmp_entry = egui::Frame::none()
-                    .fill(weak_bg_fill)
+                    .fill(weak_bg_fill) 
                     .show(ui, |ui| {
                        ui.add(lbl).on_hover_cursor(egui::CursorIcon::Default);
                     });
@@ -197,7 +245,7 @@ impl UIExplorer {
                 let header_resp = header
                     .show(ui, |ui| {
                         // Recursively render children
-                        Self::render_ui_tree_recursive(ui, tree, child_index, state, weak_bg_fill);
+                        Self::render_ui_tree_recursive(ui, tree, child_index, state);
                     });    
                     
                 if header_resp.header_response.clicked() {
@@ -209,11 +257,40 @@ impl UIExplorer {
         }
     }    
 
+    fn process_event(&mut self, event: &egui::Event, state: &mut TreeState) {
+
+        match event {
+            egui::Event::MouseMoved { .. } => { 
+                let cursor_position = unsafe {
+                    let mut cursor_pos = POINT::default();
+                    GetCursorPos(&mut cursor_pos).unwrap();
+                    cursor_pos
+                };
+                                
+                if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, self.ui_tree.get_elements()) {
+                    state.active_element = Some(ui_element_props.clone());
+                } 
+            }
+            _ => (),
+        }
+    }
+
+
+    fn set_status(&mut self, msg: String, duration: Duration) {
+        let status_msg = AppStatusMsg::new_with_duration(msg, duration);
+        self.status_msg = Some(status_msg);
+    }
+
+    fn clear_status(&mut self) {
+        self.status_msg = None;
+    }
+
 }
 
 impl eframe::App for UIExplorer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
+        // manage the TreeState
         let mut state: TreeState;
         if let Some(tree_state) = &self.tree_state { //.active_element 
             state = tree_state.clone();
@@ -221,8 +298,39 @@ impl eframe::App for UIExplorer {
             state = TreeState::new();
         }        
 
-        let weak_bg_fill = ctx.theme().default_visuals().widgets.inactive.weak_bg_fill;        
+        // manage the AppStatusMsg lifecycle
+        if let Some(status_msg) = &self.status_msg {
+            if status_msg.is_expired() {
+                self.clear_status();
+            } else {
+                if status_msg.has_display_duration() {
+                    // switch from reactive mode to continuous mode to 
+                    // ensure the status messages is cleared after the 
+                    // specified time, even if there is no event triggered
+                    ctx.request_repaint();
+                }
+            }
+        }
 
+        // status bar
+        egui::TopBottomPanel::bottom("bottom_panel").resizable(false).show(ctx, |ui| {
+
+            ui.add_space(2.0);
+        
+            ui.horizontal(|ui| {
+                if let Some(ref msg) = &self.status_msg {
+                    ui.label(&msg.status_msg);
+                } else {
+                    ui.label("Ready");
+                }
+            });
+        
+            ui.add_space(2.0);
+        
+        });
+        
+
+        // UI tree 
         egui::SidePanel::left("left_panel")
         .min_width(800.0)
         .max_width(1400.0)                
@@ -232,12 +340,13 @@ impl eframe::App for UIExplorer {
             .auto_shrink(false)
             .show(ui, |ui| {
                 // printfmt!("running 'render_ui_tree' function on UIExplorer");
-                self.render_ui_tree(ui, &mut state, weak_bg_fill);
+                self.render_ui_tree(ui, &mut state);
 
             });
 
         });
 
+        // options bar
         egui::TopBottomPanel::top("top_panel").resizable(true).show(ctx, |ui| {
 
             ui.input(|i| {
@@ -276,7 +385,7 @@ impl eframe::App for UIExplorer {
         });
 
         
-
+        // main screen with element details
         egui::CentralPanel::default().show(ctx, |ui| {
                 
             ui.horizontal(|ui| {
@@ -293,6 +402,10 @@ impl eframe::App for UIExplorer {
 
                         ui.label("Localized Control Type:");
                         ui.label(active_element.localized_control_type.clone());
+                        if ui.button("📋").clicked() {
+                            ui.ctx().copy_text(active_element.localized_control_type.clone());
+                            self.set_status("Value copied to clipboard".to_string(), Duration::seconds(2));
+                        }
                         ui.end_row();
 
                         ui.label("Framework ID:");
@@ -301,6 +414,10 @@ impl eframe::App for UIExplorer {
 
                         ui.label("Class Name:");
                         ui.label(active_element.classname.clone());
+                        if ui.button("📋").clicked() {
+                            ui.ctx().copy_text(active_element.classname.clone());
+                            self.set_status("Value copied to clipboard".to_string(), Duration::seconds(2));
+                        }
                         ui.end_row();
 
                         ui.label("Runtime ID:");
@@ -342,24 +459,6 @@ impl eframe::App for UIExplorer {
 }
 
 impl UIExplorer {
-    #[allow(dead_code)]
-    fn process_event(&mut self, event: &egui::Event, state: &mut TreeState) {
-
-        match event {
-            egui::Event::MouseMoved { .. } => { 
-                let cursor_position = unsafe {
-                    let mut cursor_pos = POINT::default();
-                    GetCursorPos(&mut cursor_pos).unwrap();
-                    cursor_pos
-                };
-                                
-                if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, self.ui_tree.get_elements()) {
-                    state.active_element = Some(ui_element_props.clone());
-                } 
-            }
-            _ => (),
-        }
-    }
 }
 
 
