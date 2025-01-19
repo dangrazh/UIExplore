@@ -49,7 +49,7 @@ fn main() -> eframe::Result {
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).    
 
-    let app_size_pos = AppSizeAndPosition::new_from_screen(0.6);
+    let app_size_pos = AppSizeAndPosition::new_from_screen(0.4, 0.8);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -65,7 +65,7 @@ fn main() -> eframe::Result {
         Box::new(|_cc| {
             // This gives us image support:
             // egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(UIExplorer::new_with_state(ui_tree)))
+            Ok(Box::new(UIExplorer::new_with_state(app_size_pos, ui_tree)))
         }),
 
     )
@@ -100,12 +100,12 @@ impl AppSizeAndPosition {
         }
     }
 
-    fn new_from_screen(scaling: f32) -> Self {
+    fn new_from_screen(horizontal_scaling: f32, vertical_scaling: f32) -> Self {
         let screen_size = get_system_metrics();
         let screen_width = screen_size.width;
         let screen_height = screen_size.height;
-        let app_width = screen_width as f32 * scaling;
-        let app_height = screen_height as f32 * scaling;
+        let app_width = screen_width as f32 * horizontal_scaling;
+        let app_height = screen_height as f32 * vertical_scaling;
         let app_left = screen_width as f32 / 2.0 - app_width / 2.0;
         let app_top = screen_height as f32 / 2.0 - app_height / 2.0;
         Self::new(screen_width, screen_height, app_width, app_height, app_left, app_top)

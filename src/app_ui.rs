@@ -7,13 +7,15 @@ use eframe::egui;
 
 use egui::Response;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{POINT, RECT};
 
-use crate::{rectangle, uiexplore, UIElementProps, UITree}; 
+use crate::{rectangle, uiexplore, UIElementProps, UITree, AppSizeAndPosition}; 
 
 #[derive(Clone)]
 struct TreeState {
     active_element: Option<UIElementProps>,
+    prev_element: Option<UIElementProps>,
+    clear_frame: bool,
     active_ui_element: Option<usize>,
 }
 
@@ -21,9 +23,54 @@ impl TreeState {
     fn new() -> Self {
         Self {
             active_element: None,
+            prev_element: None,
+            clear_frame: false,
             active_ui_element: None,
         }
     }
+
+    fn update_state(&mut self, new_active_element: UIElementProps, new_active_ui_element: usize) {
+
+        // if we have an active element, check if the new one is different and if yes,
+        // update the state to reflect the change
+        if let Some(current_element) = &self.active_element {
+            // only update the state if there is a change in the active element
+            if new_active_element.runtime_id != current_element.runtime_id {
+                self.prev_element = Some(current_element.clone());
+                self.clear_frame = true;    
+                self.active_element = Some(new_active_element);
+                self.active_ui_element = Some(new_active_ui_element);
+            }
+        } else {
+            // there was no active element, so set the active element, 
+            // and the active ui element to the proviced values and
+            // default the prev element to the provided active
+            self.prev_element = Some(new_active_element.clone());
+            self.active_element = Some(new_active_element);
+            self.active_ui_element = Some(new_active_ui_element);
+        }
+    }
+
+    fn update_active_element(&mut self, new_active_element: UIElementProps) {
+        // if we have an active element, check if the new one is different and if yes,
+        // update the state to reflect the change
+        if let Some(current_element) = &self.active_element {
+            // only update the state if there is a change in the active element
+            if new_active_element.runtime_id != current_element.runtime_id {
+                self.prev_element = Some(current_element.clone());
+                self.clear_frame = true;    
+                self.active_element = Some(new_active_element);
+            }
+        } else {
+            // there was no active element, so set the active element, 
+            // and the active ui element to the proviced values and
+            // default the prev element to the provided active
+            self.prev_element = Some(new_active_element.clone());
+            self.active_element = Some(new_active_element);
+        }
+    }
+
+
 }
 #[derive(Clone)]
 struct AppStatusMsg {
@@ -133,7 +180,10 @@ impl DeduplicatedHistory {
 
 // #[allow(dead_code)]
 pub struct UIExplorer {
+    size_and_pos: AppSizeAndPosition,
     recording: bool,
+    show_history: bool,
+    highlighting: bool,
     ui_tree: UITree,
     tree_state: Option<TreeState>,
     history: DeduplicatedHistory,
@@ -151,9 +201,13 @@ impl UIExplorer {
         });
 
         let ui_tree = rx.recv().unwrap();
+        let size_and_pos = AppSizeAndPosition::new_from_screen(0.4, 0.8);
 
         Self {
+            size_and_pos,
             recording: false,
+            show_history: false,
+            highlighting: false,
             ui_tree,
             tree_state: None,
             history: DeduplicatedHistory::default(),
@@ -161,10 +215,13 @@ impl UIExplorer {
         }
     }
 
-    pub fn new_with_state(ui_tree: UITree) -> Self {
+    pub fn new_with_state(size_and_pos: AppSizeAndPosition, ui_tree: UITree) -> Self {
 
         Self {
+            size_and_pos,
             recording: false,
+            show_history: false,
+            highlighting: false,
             ui_tree,
             tree_state: None,
             history: DeduplicatedHistory::default(),
@@ -212,8 +269,13 @@ impl UIExplorer {
                 }
                 
                 if entry.clicked() {
-                    state.active_element = Some(ui_element.clone());
-                    state.active_ui_element = Some(child_index);
+                    // if let Some(current_element) = &state.active_element {
+                    //     state.prev_element = Some(current_element.clone());
+                    //     state.clear_frame = true;
+                    // }
+                    // state.active_element = Some(ui_element.clone());
+                    // state.active_ui_element = Some(child_index);
+                    state.update_state(ui_element.clone(), child_index);
                 }
                 if entry.hovered() {
                     entry.highlight();                    
@@ -249,9 +311,13 @@ impl UIExplorer {
                     });    
                     
                 if header_resp.header_response.clicked() {
-                    state.active_element = Some(ui_element.clone());
-                    state.active_ui_element = Some(child_index);
-                    
+                    // if let Some(current_element) = &state.active_element {
+                    //     state.prev_element = Some(current_element.clone());
+                    //     state.clear_frame = true;
+                    // }                    
+                    // state.active_element = Some(ui_element.clone());
+                    // state.active_ui_element = Some(child_index);
+                    state.update_state(ui_element.clone(), child_index);
                 }
             }
         }
@@ -268,7 +334,13 @@ impl UIExplorer {
                 };
                                 
                 if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, self.ui_tree.get_elements()) {
-                    state.active_element = Some(ui_element_props.clone());
+                    
+                    // if let Some(current_element) = &state.active_element {
+                    //     state.prev_element = Some(current_element.clone());
+                    //     state.clear_frame = true;
+                    // }                    
+                    // state.active_element = Some(ui_element_props.clone());
+                    state.update_active_element(ui_element_props.clone());
                 } 
             }
             _ => (),
@@ -323,6 +395,7 @@ impl eframe::App for UIExplorer {
                 } else {
                     ui.label("Ready");
                 }
+                ui.label(format!("Clear Frame: {}", state.clear_frame));
             });
         
             ui.add_space(2.0);
@@ -349,6 +422,8 @@ impl eframe::App for UIExplorer {
         // options bar
         egui::TopBottomPanel::top("top_panel").resizable(true).show(ctx, |ui| {
 
+            ui.add_space(2.0);
+
             ui.input(|i| {
                 
                 for event in &i.raw.events {
@@ -364,9 +439,11 @@ impl eframe::App for UIExplorer {
                 }
                     
                     // for the visual event summary
-                    let summary = event_summary(event, self.ui_tree.get_elements());
-                    let full = format!("{event:#?}");
-                    self.history.add(summary, full);
+                    if self.show_history {
+                        let summary = event_summary(event, self.ui_tree.get_elements());
+                        let full = format!("{event:#?}");
+                        self.history.add(summary, full);    
+                    }
 
                     // update the actual active element
                     self.process_event(event, &mut state);
@@ -374,13 +451,37 @@ impl eframe::App for UIExplorer {
             });
     
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.recording, "Recording");
-                ui.label("Record events");
+                
+                let prev_highlight = self.highlighting;
+                ui.checkbox(&mut self.highlighting, "Show Highlight Rectangle");
+                ui.checkbox(&mut self.recording, "Track Cursor");
+                if self.recording {
+                    ui.checkbox(&mut self.show_history, "Show Event History");
+                }
+                let new_highlight = self.highlighting;
+                
+                // clear any highlighted surrounding rectangle as 
+                if new_highlight != prev_highlight && new_highlight == false {
+                    printfmt!("Old highlight value was {}, new one is {}", prev_highlight, new_highlight);
+                    let rect: RECT = RECT { 
+                        left: 0, 
+                        top: 0, 
+                        right: self.size_and_pos.screen_width, 
+                        bottom: self.size_and_pos.screen_height, 
+                    };
+                    rectangle::clear_frame(rect).unwrap();
+                    state.clear_frame = false;
+                }
+                
             });
 
-            ui.add_space(8.0);
+            ui.add_space(2.0);
 
-            self.history.ui(ui);
+            if self.show_history {
+                ui.add_space(6.0);
+                self.history.ui(ui);
+            }
+            
 
         });
 
@@ -391,6 +492,37 @@ impl eframe::App for UIExplorer {
             ui.horizontal(|ui| {
 
                 if let Some(active_element) = &state.active_element {
+                    
+                    // Optionally render the frame around the active element on the screen
+                    if self.highlighting {
+                        let rect: RECT = RECT { 
+                            left: active_element.bounding_rect.get_left(), 
+                            top: active_element.bounding_rect.get_top(), 
+                            right: active_element.bounding_rect.get_right(), 
+                            bottom: active_element.bounding_rect.get_bottom() 
+                        };
+                        
+                        if let Some(prev_element) = &state.prev_element {
+                            let prev_rect: RECT = RECT {
+                                left: prev_element.bounding_rect.get_left(), 
+                                top: prev_element.bounding_rect.get_top(), 
+                                right: prev_element.bounding_rect.get_right(), 
+                                bottom: prev_element.bounding_rect.get_bottom()     
+                            };
+                            if state.clear_frame { //rect != prev_rect && 
+                                printfmt!("Cleanup needed - new: {:?} vs old: {:?}", rect, prev_rect);
+                                rectangle::clear_frame(prev_rect).unwrap();
+                                rectangle::draw_frame(rect, 4).unwrap();
+                                state.clear_frame = false;
+                            } else {
+                                rectangle::draw_frame(rect, 4).unwrap();
+                            }
+                        } else {
+                            rectangle::draw_frame(rect, 4).unwrap();
+                        }
+                    } 
+                    
+                    // display the element properties 
                     egui::Grid::new("some_unique_id").min_col_width(100.0).show(ui, |ui| {
                         ui.label("Name:");
                         ui.label(active_element.name.clone());
