@@ -390,7 +390,7 @@ impl eframe::App for UIExplorer {
             ui.add_space(2.0);
         
             ui.horizontal(|ui| {
-                if let Some(ref msg) = &self.status_msg {
+                if let Some(msg) = &self.status_msg {
                     ui.label(&msg.status_msg);
                 } else {
                     ui.label("Ready");
@@ -453,6 +453,10 @@ impl eframe::App for UIExplorer {
             ui.horizontal(|ui| {
                 
                 let prev_highlight = self.highlighting;
+                ui.button("🔄").on_hover_text("Refresh");
+                ui.add_space(2.0);
+                ui.label(" | ");
+                ui.add_space(2.0);
                 ui.checkbox(&mut self.highlighting, "Show Highlight Rectangle");
                 ui.checkbox(&mut self.recording, "Track Cursor");
                 if self.recording {
