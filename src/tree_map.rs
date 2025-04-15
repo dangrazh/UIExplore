@@ -65,6 +65,17 @@ impl<T> UITreeMap<T> {
         index
     }
 
+    pub fn get_path_to_element(&self, index: usize) -> Vec<usize> {
+        let mut path = Vec::new();
+        let mut current_index = index;
+        while current_index != 0 {
+            path.push(current_index);
+            current_index = self.nodes[current_index].parent;
+        }
+        path.reverse(); // Reverse to get the path from root to the node
+        path
+    }
+
     /// Walks the tree and calls the callback on each node's data, immutably
     pub fn for_each<F>(&self, mut callback: F)
     where

@@ -8,18 +8,18 @@ use windows::{
 };
 
 
-use crate::UIElementProps;
+use crate::UIElementInTree;
 
 
 // TODO: Change the return value to contain both the element and the index
 //       and add the index as an input parameter as well to start looping from that index
 //       as the rectangles are sorted by size
-pub fn get_point_bounding_rect<'a>(point: &'a POINT, ui_elements: &'a Vec<UIElementProps>) -> Option<&'a UIElementProps> {
+pub fn get_point_bounding_rect<'a>(point: &'a POINT, ui_elements: &'a Vec<UIElementInTree>) -> Option<&'a UIElementInTree> {
 // pub fn get_point_bounding_rect(point: &Pos2, ui_elements: &Vec<UIElementProps>) -> Option<&UIElementProps> {
     // let mut cntr = 0;
     for element in ui_elements {
         // cntr += 1;
-        if is_inside_rectancle(&element.bounding_rect, point.x, point.y) {
+        if is_inside_rectancle(&element.get_element_props().bounding_rect, point.x, point.y) {
             // println!("point: {{ x: {}, y: {} }} searched elements: {} / Found element: {{ name: '{}', control_type: '{}' bounding_rect: {} }}", point.x, point.y, cntr, element.name, element.control_type, element.bounding_rect);        
             return Some(element);
         }

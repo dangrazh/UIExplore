@@ -9,7 +9,8 @@ use egui::Response;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::Foundation::{POINT, RECT};
 
-use crate::{rectangle, uiexplore, UIElementProps, UITree, AppSizeAndPosition}; 
+#[allow(unused)]
+use crate::{rectangle, uiexplore, UIElementProps, UIElementInTree, UITree, AppContext, winevent}; 
 
 #[derive(Clone)]
 struct TreeState {
@@ -17,6 +18,8 @@ struct TreeState {
     prev_element: Option<UIElementProps>,
     clear_frame: bool,
     active_ui_element: Option<usize>,
+    path_to_active_ui_element: Option<Vec<usize>>,
+    refresh_path_to_active_ui_element: bool,
 }
 
 impl TreeState {
@@ -26,6 +29,8 @@ impl TreeState {
             prev_element: None,
             clear_frame: false,
             active_ui_element: None,
+            path_to_active_ui_element: None,
+            refresh_path_to_active_ui_element: false,
         }
     }
 
@@ -40,6 +45,7 @@ impl TreeState {
                 self.clear_frame = true;    
                 self.active_element = Some(new_active_element);
                 self.active_ui_element = Some(new_active_ui_element);
+                self.refresh_path_to_active_ui_element = true;
             }
         } else {
             // there was no active element, so set the active element, 
@@ -48,28 +54,26 @@ impl TreeState {
             self.prev_element = Some(new_active_element.clone());
             self.active_element = Some(new_active_element);
             self.active_ui_element = Some(new_active_ui_element);
+            self.refresh_path_to_active_ui_element = true;
         }
     }
 
-    fn update_active_element(&mut self, new_active_element: UIElementProps) {
-        // if we have an active element, check if the new one is different and if yes,
-        // update the state to reflect the change
-        if let Some(current_element) = &self.active_element {
-            // only update the state if there is a change in the active element
-            if new_active_element.runtime_id != current_element.runtime_id {
-                self.prev_element = Some(current_element.clone());
-                self.clear_frame = true;    
-                self.active_element = Some(new_active_element);
+    fn update_path_to_active_ui_element(&mut self, ui_tree: &UITree) {
+        
+        match self.active_ui_element {
+            Some(active_ui_element) => {
+                let path = ui_tree.get_tree().get_path_to_element(active_ui_element);
+                self.path_to_active_ui_element = Some(path);
+        
+            },
+            None => {
+                self.path_to_active_ui_element  = None;
             }
-        } else {
-            // there was no active element, so set the active element, 
-            // and the active ui element to the proviced values and
-            // default the prev element to the provided active
-            self.prev_element = Some(new_active_element.clone());
-            self.active_element = Some(new_active_element);
         }
+        self.refresh_path_to_active_ui_element = false;
     }
 
+    
 
 }
 #[derive(Clone)]
@@ -180,7 +184,7 @@ impl DeduplicatedHistory {
 
 // #[allow(dead_code)]
 pub struct UIExplorer {
-    size_and_pos: AppSizeAndPosition,
+    app_context: AppContext,
     recording: bool,
     show_history: bool,
     highlighting: bool,
@@ -201,10 +205,12 @@ impl UIExplorer {
         });
 
         let ui_tree = rx.recv().unwrap();
-        let size_and_pos = AppSizeAndPosition::new_from_screen(0.4, 0.8);
+        let app_context = AppContext::new_from_screen(0.4, 0.8);
+
+        // TODO: Add winevent hook and ui automation instance
 
         Self {
-            size_and_pos,
+            app_context,
             recording: false,
             show_history: false,
             highlighting: false,
@@ -213,12 +219,16 @@ impl UIExplorer {
             history: DeduplicatedHistory::default(),
             status_msg: None,
         }
+
+
     }
 
-    pub fn new_with_state(size_and_pos: AppSizeAndPosition, ui_tree: UITree) -> Self {
+    pub fn new_with_state(app_context: AppContext, ui_tree: UITree) -> Self {
+
+        // TODO: Add winevent hook and ui automation instance
 
         Self {
-            size_and_pos,
+            app_context,
             recording: false,
             show_history: false,
             highlighting: false,
@@ -232,7 +242,6 @@ impl UIExplorer {
 
     fn render_ui_tree(&mut self, ui: &mut egui::Ui, state: &mut TreeState) {
         let tree = &self.ui_tree;
-        // Display the file format as the root note, if there is one
         Self::render_ui_tree_recursive(ui, tree, 0, state);
     }
 
@@ -269,12 +278,6 @@ impl UIExplorer {
                 }
                 
                 if entry.clicked() {
-                    // if let Some(current_element) = &state.active_element {
-                    //     state.prev_element = Some(current_element.clone());
-                    //     state.clear_frame = true;
-                    // }
-                    // state.active_element = Some(ui_element.clone());
-                    // state.active_ui_element = Some(child_index);
                     state.update_state(ui_element.clone(), child_index);
                 }
                 if entry.hovered() {
@@ -285,7 +288,7 @@ impl UIExplorer {
                 // Render children under collapsing header
                 let header: egui::CollapsingHeader;                
                 // TODO: check if header is on path to active element, if yes open the header
-                if "perform the check" != "perform the check 1" {
+                if !is_in_path_to_active_element(state.active_ui_element, &state.path_to_active_ui_element) {
                     // header is not on path, render a standard CollapsingHeader
                     header = egui::CollapsingHeader::new(name)
                     .id_salt(format!("ch_node{}", child_index))
@@ -311,12 +314,6 @@ impl UIExplorer {
                     });    
                     
                 if header_resp.header_response.clicked() {
-                    // if let Some(current_element) = &state.active_element {
-                    //     state.prev_element = Some(current_element.clone());
-                    //     state.clear_frame = true;
-                    // }                    
-                    // state.active_element = Some(ui_element.clone());
-                    // state.active_ui_element = Some(child_index);
                     state.update_state(ui_element.clone(), child_index);
                 }
             }
@@ -330,17 +327,13 @@ impl UIExplorer {
                 let cursor_position = unsafe {
                     let mut cursor_pos = POINT::default();
                     GetCursorPos(&mut cursor_pos).unwrap();
+                    cursor_pos.x = (cursor_pos.x as f32 / self.app_context.screen_scale) as i32;
+                    cursor_pos.y = (cursor_pos.y as f32 / self.app_context.screen_scale) as i32;
                     cursor_pos
                 };
                                 
                 if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, self.ui_tree.get_elements()) {
-                    
-                    // if let Some(current_element) = &state.active_element {
-                    //     state.prev_element = Some(current_element.clone());
-                    //     state.clear_frame = true;
-                    // }                    
-                    // state.active_element = Some(ui_element_props.clone());
-                    state.update_active_element(ui_element_props.clone());
+                    state.update_state(ui_element_props.get_element_props().clone(), ui_element_props.get_tree_index());
                 } 
             }
             _ => (),
@@ -369,6 +362,10 @@ impl eframe::App for UIExplorer {
         } else {
             state = TreeState::new();
         }        
+
+        if state.refresh_path_to_active_ui_element {
+            state.update_path_to_active_ui_element(&self.ui_tree);
+        }
 
         // manage the AppStatusMsg lifecycle
         if let Some(status_msg) = &self.status_msg {
@@ -470,8 +467,8 @@ impl eframe::App for UIExplorer {
                     let rect: RECT = RECT { 
                         left: 0, 
                         top: 0, 
-                        right: self.size_and_pos.screen_width, 
-                        bottom: self.size_and_pos.screen_height, 
+                        right: self.app_context.screen_width, 
+                        bottom: self.app_context.screen_height, 
                     };
                     rectangle::clear_frame(rect).unwrap();
                     state.clear_frame = false;
@@ -499,19 +496,29 @@ impl eframe::App for UIExplorer {
                     
                     // Optionally render the frame around the active element on the screen
                     if self.highlighting {
+                        let left: f32 = active_element.bounding_rect.get_left() as f32 * self.app_context.screen_scale;
+                        let top: f32 = active_element.bounding_rect.get_top() as f32 * self.app_context.screen_scale;
+                        let right: f32 = active_element.bounding_rect.get_right() as f32 * self.app_context.screen_scale;
+                        let bottom: f32 = active_element.bounding_rect.get_bottom() as f32 * self.app_context.screen_scale;
+
                         let rect: RECT = RECT { 
-                            left: active_element.bounding_rect.get_left(), 
-                            top: active_element.bounding_rect.get_top(), 
-                            right: active_element.bounding_rect.get_right(), 
-                            bottom: active_element.bounding_rect.get_bottom() 
+                            left: left as i32, 
+                            top: top as i32, 
+                            right: right as i32, 
+                            bottom: bottom as i32, 
                         };
                         
                         if let Some(prev_element) = &state.prev_element {
+                            let prev_left: f32 = prev_element.bounding_rect.get_left() as f32 * self.app_context.screen_scale;
+                            let prev_top: f32 = prev_element.bounding_rect.get_top() as f32 * self.app_context.screen_scale;
+                            let prev_right: f32 = prev_element.bounding_rect.get_right() as f32 * self.app_context.screen_scale;
+                            let prev_bottom: f32 = prev_element.bounding_rect.get_bottom() as f32 * self.app_context.screen_scale;
+
                             let prev_rect: RECT = RECT {
-                                left: prev_element.bounding_rect.get_left(), 
-                                top: prev_element.bounding_rect.get_top(), 
-                                right: prev_element.bounding_rect.get_right(), 
-                                bottom: prev_element.bounding_rect.get_bottom()     
+                                left: prev_left as i32, 
+                                top: prev_top as i32, 
+                                right: prev_right as i32, 
+                                bottom: prev_bottom as i32,     
                             };
                             if state.clear_frame { //rect != prev_rect && 
                                 printfmt!("Cleanup needed - new: {:?} vs old: {:?}", rect, prev_rect);
@@ -594,11 +601,8 @@ impl eframe::App for UIExplorer {
 
 }
 
-impl UIExplorer {
-}
 
-
-fn event_summary(event: &egui::Event, ui_elements: &Vec<UIElementProps>) -> String {
+fn event_summary(event: &egui::Event, ui_elements: &Vec<UIElementInTree>) -> String {
     match event {
         egui::Event::PointerMoved { .. }   => {        
             "PointerMoved { .. }".to_owned()
@@ -612,6 +616,7 @@ fn event_summary(event: &egui::Event, ui_elements: &Vec<UIElementProps>) -> Stri
 
             if let Some(ui_element_props) = rectangle::get_point_bounding_rect(&cursor_position, ui_elements) {
                 // format!("MouseMoved {{ x: {}, y: {} }} over {}", cursor_position.x, cursor_position.y, ui_element_props.name)
+                let ui_element_props = ui_element_props.get_element_props();
                 format!("MouseMoved over {{ name: '{}', control_type: '{}' bounding_rect: {} }}", ui_element_props.name, ui_element_props.control_type, ui_element_props.bounding_rect)
             } else {
             // format!("MouseMoved {{ x: {}, y: {} }} ", cursor_position.x, cursor_position.y)
@@ -624,4 +629,19 @@ fn event_summary(event: &egui::Event, ui_elements: &Vec<UIElementProps>) -> Stri
 
         _ => format!("{event:?}"),
     }
+}
+
+fn is_in_path_to_active_element(active_element: Option<usize>, path_to_active_element: &Option<Vec<usize>>) -> bool {
+    
+    if active_element.is_none() || path_to_active_element.is_none() {
+        return false;
+    }
+    let active_element = active_element.unwrap();
+    let path_to_active_element = path_to_active_element.as_ref().unwrap();
+    for &index in path_to_active_element {
+        if index == active_element {
+            return true;
+        }
+    }
+    false
 }

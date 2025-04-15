@@ -8,16 +8,36 @@ use std::sync::mpsc::Sender;
 
 use uiautomation::core::UIAutomation;
 use uiautomation::{UIElement, UITreeWalker};
+use uiautomation::types::Handle;
 
+#[derive(Debug, Clone)]
+pub struct UIElementInTree {
+    element_props: UIElementProps,
+    tree_index: usize,
+}
+
+impl UIElementInTree {
+    pub fn new(element_props: UIElementProps, tree_index: usize) -> Self {
+        UIElementInTree {element_props, tree_index}
+    }
+
+    pub fn get_element_props(&self) -> &UIElementProps {
+        &self.element_props
+    }
+
+    pub fn get_tree_index(&self) -> usize {
+        self.tree_index
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UITree {
     tree: UITreeMap<UIElementProps>,
-    ui_elements: Vec<UIElementProps>,
+    ui_elements: Vec<UIElementInTree>,
 }
 
 impl UITree {
-    pub fn new(tree: UITreeMap<UIElementProps>, ui_elements: Vec<UIElementProps>) -> Self {
+    pub fn new(tree: UITreeMap<UIElementProps>, ui_elements: Vec<UIElementInTree>) -> Self {
         UITree {tree, ui_elements} 
     }
 
@@ -25,7 +45,7 @@ impl UITree {
         &self.tree
     }
 
-    pub fn get_elements(&self) -> &Vec<UIElementProps> {
+    pub fn get_elements(&self) -> &Vec<UIElementInTree> {
         &self.ui_elements
     }
 
@@ -60,6 +80,7 @@ pub struct UIElementProps {
     pub localized_control_type: String,
     pub framework_id: String,
     pub runtime_id: Vec<i32>,
+    pub handle: isize,
     pub bounding_rect: uiautomation::types::Rect,
     pub bounding_rect_size: i32,
     pub level: usize,
@@ -89,6 +110,7 @@ impl From<UIElement> for UIElementProps {
         let localized_control_type: String = item.get_localized_control_type().unwrap_or("".to_string());
         let framework_id: String = item.get_framework_id().unwrap_or("".to_string());
         let runtime_id: Vec<i32> = item.get_runtime_id().unwrap_or(Vec::new());
+        let handle : isize = item.get_native_window_handle().unwrap_or(Handle::from(0 as isize)).into();
         let bounding_rect: uiautomation::types::Rect = item.get_bounding_rectangle().unwrap_or(uiautomation::types::Rect::new(0, 0, 0, 0));
         let bounding_rect_size: i32 = (bounding_rect.get_right() - bounding_rect.get_left()) * (bounding_rect.get_bottom() - bounding_rect.get_top());            
         
@@ -99,6 +121,7 @@ impl From<UIElement> for UIElementProps {
             localized_control_type,
             framework_id,
             runtime_id,
+            handle,
             bounding_rect,
             bounding_rect_size,
             level: 0,
@@ -118,7 +141,8 @@ pub fn get_all_elements(tx: Sender<UITree>, max_depth: Option<usize>)  {
     let item = format!("'{}' {} ({} | {} | {})", root.get_name().unwrap(), root.get_localized_control_type().unwrap(), root.get_classname().unwrap(), root.get_framework_id().unwrap(), runtime_id);
     let ui_elem_props = UIElementProps::new(root.clone(), 0, 999);
     let mut tree = UITreeMap::new(item, ui_elem_props.clone());
-    let mut ui_elements: Vec<UIElementProps> = vec![ui_elem_props];
+    let ui_elem_in_tree = UIElementInTree::new(ui_elem_props, 0);
+    let mut ui_elements: Vec<UIElementInTree> = vec![ui_elem_in_tree];
     
     // printfmt!("Root element: {}", debug_clone.name);
     if let Ok(_first_child) = walker.get_first_child(&root) {     
@@ -127,8 +151,8 @@ pub fn get_all_elements(tx: Sender<UITree>, max_depth: Option<usize>)  {
     }
 
     // sorting the elements by z_order and then by ascending size of the bounding rectangle
-    ui_elements.sort_by(|a, b| a.bounding_rect_size.cmp(&b.bounding_rect_size));
-    ui_elements.sort_by(|a, b| a.z_order.cmp(&b.z_order));
+    ui_elements.sort_by(|a, b| a.get_element_props().bounding_rect_size.cmp(&b.get_element_props().bounding_rect_size));
+    ui_elements.sort_by(|a, b| a.get_element_props().z_order.cmp(&b.get_element_props().z_order));
 
     // pack the tree and ui_elements vector into a single struct
     let ui_tree = UITree::new(tree, ui_elements);
@@ -139,7 +163,7 @@ pub fn get_all_elements(tx: Sender<UITree>, max_depth: Option<usize>)  {
 }
 
 
-fn get_element(mut tree: &mut UITreeMap<UIElementProps>, mut ui_elements: &mut Vec<UIElementProps>, parent: usize, walker: &UITreeWalker, element: &UIElement, level: usize, mut z_order: usize, max_depth: Option<usize>)  {
+fn get_element(mut tree: &mut UITreeMap<UIElementProps>, mut ui_elements: &mut Vec<UIElementInTree>, parent: usize, walker: &UITreeWalker, element: &UIElement, level: usize, mut z_order: usize, max_depth: Option<usize>)  {
 
     if let Some(limit) = max_depth {
         if level > limit {
@@ -159,7 +183,8 @@ fn get_element(mut tree: &mut UITreeMap<UIElementProps>, mut ui_elements: &mut V
     }
     
     let parent = tree.add_child(parent, item.as_str(), ui_elem_props.clone());
-    ui_elements.push(ui_elem_props);
+    let ui_elem_in_tree = UIElementInTree::new(ui_elem_props, parent);
+    ui_elements.push(ui_elem_in_tree);
 
     // walking children now
     if let Ok(child) = walker.get_first_child(&element) {
